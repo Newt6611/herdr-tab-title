@@ -1,0 +1,47 @@
+id = "herdr-tab-title"
+name = "Herdr Tab Title"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Automatically formats Herdr tab titles."
+platforms = ["linux", "macos", "windows"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[actions]]
+id = "refresh"
+title = "Refresh tab titles"
+contexts = ["workspace"]
+command = ["target/release/herdr-tab-title"]
+
+[[events]]
+on = "tab.created"
+command = ["target/release/herdr-tab-title"]
+
+[[events]]
+on = "tab.renamed"
+command = ["target/release/herdr-tab-title"]
+
+[[events]]
+on = "tab.closed"
+command = ["target/release/herdr-tab-title"]
+
+[[events]]
+on = "tab.focused"
+command = ["target/release/herdr-tab-title"]
+
+[[events]]
+on = "workspace.created"
+command = ["target/release/herdr-tab-title"]
+
+[[events]]
+on = "workspace.focused"
+command = ["target/release/herdr-tab-title"]
+
+[[events]]
+on = "workspace.renamed"
+command = ["target/release/herdr-tab-title"]
+
+[[events]]
+on = "workspace.closed"
+command = ["target/release/herdr-tab-title"]

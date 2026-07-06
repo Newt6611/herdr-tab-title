@@ -1,0 +1,7 @@
+# Copy this file to:
+#   $HERDR_PLUGIN_CONFIG_DIR/config.toml
+
+# Supported placeholders:
+#   {index} - 1-based tab position
+#   {title} - tab title with an existing numeric prefix removed
+format = "{index}. {title}"
