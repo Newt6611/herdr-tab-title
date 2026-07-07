@@ -2,12 +2,13 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use super::commands;
-use super::models::{Tab, Workspace};
+use super::models::{Pane, Tab, Workspace};
 
 pub trait HerdrApi {
     fn list_tabs(&self) -> Result<Vec<Tab>, HerdrError>;
     fn rename_tab(&self, id: &str, title: &str) -> Result<(), HerdrError>;
     fn focus_tab(&self, id: &str) -> Result<(), HerdrError>;
+    fn list_panes(&self) -> Result<Vec<Pane>, HerdrError>;
     fn list_workspaces(&self) -> Result<Vec<Workspace>, HerdrError>;
 }
 
@@ -42,6 +43,11 @@ impl HerdrApi for HerdrClient {
 
     fn focus_tab(&self, id: &str) -> Result<(), HerdrError> {
         self.run_unit(&commands::focus_tab_args(id))
+    }
+
+    fn list_panes(&self) -> Result<Vec<Pane>, HerdrError> {
+        let response: CliResponse<PaneListResult> = self.run_json(&commands::list_panes_args())?;
+        Ok(response.result.panes)
     }
 
     fn list_workspaces(&self) -> Result<Vec<Workspace>, HerdrError> {
@@ -120,6 +126,11 @@ struct CliResponse<T> {
 #[derive(Debug, serde::Deserialize)]
 struct TabListResult {
     tabs: Vec<Tab>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PaneListResult {
+    panes: Vec<Pane>,
 }
 
 #[derive(Debug, serde::Deserialize)]

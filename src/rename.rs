@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::path::Path;
+
 use crate::formatter::{Formatter, RenderContext, strip_numeric_prefix};
 use crate::herdr::client::{HerdrApi, HerdrError};
 
@@ -11,6 +14,14 @@ pub struct RenameOperation {
 pub fn plan_renames<C: HerdrApi>(
     client: &C,
     formatter: &Formatter,
+) -> Result<Vec<RenameOperation>, HerdrError> {
+    plan_renames_with_title_overrides(client, formatter, &HashMap::new())
+}
+
+fn plan_renames_with_title_overrides<C: HerdrApi>(
+    client: &C,
+    formatter: &Formatter,
+    title_overrides: &HashMap<String, String>,
 ) -> Result<Vec<RenameOperation>, HerdrError> {
     let tabs = client.list_tabs()?;
 
@@ -33,7 +44,10 @@ pub fn plan_renames<C: HerdrApi>(
             workspace_index += 1;
         }
 
-        let clean_title = strip_numeric_prefix(&tab.title);
+        let clean_title = title_overrides
+            .get(&tab.id)
+            .map(String::as_str)
+            .unwrap_or_else(|| strip_numeric_prefix(&tab.title));
         let expected = formatter.render(&RenderContext {
             index: workspace_index,
             title: clean_title,
@@ -51,8 +65,27 @@ pub fn plan_renames<C: HerdrApi>(
     Ok(operations)
 }
 
+pub fn refresh_created_tab<C: HerdrApi>(
+    client: &C,
+    formatter: &Formatter,
+    tab_id: &str,
+) -> Result<usize, HerdrError> {
+    let title_overrides = created_tab_title(client, tab_id)?
+        .map(|title| HashMap::from([(tab_id.to_string(), title)]))
+        .unwrap_or_default();
+    let operations = plan_renames_with_title_overrides(client, formatter, &title_overrides)?;
+    apply_renames(client, operations)
+}
+
 pub fn refresh<C: HerdrApi>(client: &C, formatter: &Formatter) -> Result<usize, HerdrError> {
     let operations = plan_renames(client, formatter)?;
+    apply_renames(client, operations)
+}
+
+fn apply_renames<C: HerdrApi>(
+    client: &C,
+    operations: Vec<RenameOperation>,
+) -> Result<usize, HerdrError> {
     let count = operations.len();
 
     for operation in operations {
@@ -61,17 +94,39 @@ pub fn refresh<C: HerdrApi>(client: &C, formatter: &Formatter) -> Result<usize, 
     Ok(count)
 }
 
+fn created_tab_title<C: HerdrApi>(client: &C, tab_id: &str) -> Result<Option<String>, HerdrError> {
+    Ok(client
+        .list_panes()?
+        .into_iter()
+        .find(|pane| pane.tab_id == tab_id)
+        .and_then(|pane| {
+            pane.foreground_cwd
+                .as_deref()
+                .or(pane.cwd.as_deref())
+                .and_then(path_basename)
+                .map(str::to_string)
+        }))
+}
+
+fn path_basename(path: &str) -> Option<&str> {
+    Path::new(path)
+        .file_name()?
+        .to_str()
+        .filter(|name| !name.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
 
-    use crate::herdr::models::{Tab, Workspace};
+    use crate::herdr::models::{Pane, Tab, Workspace};
 
     use super::*;
 
     #[derive(Debug)]
     struct MockHerdrClient {
         tabs: Vec<Tab>,
+        panes: Vec<Pane>,
         renames: RefCell<Vec<(String, String)>>,
     }
 
@@ -92,6 +147,10 @@ mod tests {
                 .borrow_mut()
                 .push((id.to_string(), "<focus>".to_string()));
             Ok(())
+        }
+
+        fn list_panes(&self) -> Result<Vec<Pane>, HerdrError> {
+            Ok(self.panes.clone())
         }
 
         fn list_workspaces(&self) -> Result<Vec<Workspace>, HerdrError> {
@@ -125,6 +184,7 @@ mod tests {
                     focused: false,
                 },
             ],
+            panes: Vec::new(),
             renames: RefCell::new(Vec::new()),
         };
         let formatter = Formatter::parse("{index}. {title}").unwrap();
@@ -167,6 +227,7 @@ mod tests {
                     focused: false,
                 },
             ],
+            panes: Vec::new(),
             renames: RefCell::new(Vec::new()),
         };
         let formatter = Formatter::parse("{index}. {title}").unwrap();
@@ -177,6 +238,51 @@ mod tests {
         assert_eq!(
             client.renames.borrow().as_slice(),
             &[("t1".to_string(), "1. Codex".to_string())]
+        );
+    }
+
+    #[test]
+    fn refresh_created_tab_uses_pane_cwd_basename_as_title() {
+        let client = MockHerdrClient {
+            tabs: vec![
+                Tab {
+                    id: "t1".to_string(),
+                    title: "1. Codex".to_string(),
+                    workspace_id: "w1".to_string(),
+                    number: 1,
+                    focused: false,
+                },
+                Tab {
+                    id: "t2".to_string(),
+                    title: "2. Claude".to_string(),
+                    workspace_id: "w1".to_string(),
+                    number: 2,
+                    focused: false,
+                },
+                Tab {
+                    id: "t3".to_string(),
+                    title: "zsh".to_string(),
+                    workspace_id: "w1".to_string(),
+                    number: 3,
+                    focused: true,
+                },
+            ],
+            panes: vec![Pane {
+                id: "p3".to_string(),
+                tab_id: "t3".to_string(),
+                cwd: Some("/Users/newt/dev/herdr".to_string()),
+                foreground_cwd: None,
+            }],
+            renames: RefCell::new(Vec::new()),
+        };
+        let formatter = Formatter::parse("{index}. {title}").unwrap();
+
+        let count = refresh_created_tab(&client, &formatter, "t3").unwrap();
+
+        assert_eq!(count, 1);
+        assert_eq!(
+            client.renames.borrow().as_slice(),
+            &[("t3".to_string(), "3. herdr".to_string())]
         );
     }
 
@@ -213,6 +319,7 @@ mod tests {
                     focused: false,
                 },
             ],
+            panes: Vec::new(),
             renames: RefCell::new(Vec::new()),
         };
         let formatter = Formatter::parse("{index}. {title}").unwrap();

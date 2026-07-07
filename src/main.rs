@@ -27,6 +27,14 @@ fn run() -> Result<(), String> {
 
     let state_dir = std::env::var_os("HERDR_PLUGIN_STATE_DIR").map(PathBuf::from);
     run_cross_process(state_dir.as_deref(), REFRESH_DEBOUNCE, || {
+        if event_name.as_deref() == Some("tab.created") {
+            if let Ok(tab_id) = std::env::var("HERDR_TAB_ID") {
+                rename::refresh_created_tab(&client, &formatter, &tab_id)
+                    .map_err(|error| DebounceError::Action(error.to_string()))?;
+                return Ok(());
+            }
+        }
+
         rename::refresh(&client, &formatter)
             .map_err(|error| DebounceError::Action(error.to_string()))?;
 

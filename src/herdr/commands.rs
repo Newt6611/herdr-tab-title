@@ -15,6 +15,10 @@ pub fn focus_tab_args(id: &str) -> Vec<String> {
     vec!["tab".to_string(), "focus".to_string(), id.to_string()]
 }
 
+pub fn list_panes_args() -> Vec<String> {
+    ["pane", "list"].into_iter().map(String::from).collect()
+}
+
 pub fn list_workspaces_args() -> Vec<String> {
     ["workspace", "list"]
         .into_iter()
