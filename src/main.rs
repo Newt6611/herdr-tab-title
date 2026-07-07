@@ -3,9 +3,8 @@ use herdr_plugin::{
     WorkspaceFocused, WorkspaceRenamed,
 };
 use herdr_tab_title::config::Config;
-use herdr_tab_title::events::REFRESH_LOCK_DELAY;
 use herdr_tab_title::formatter::Formatter;
-use herdr_tab_title::refresh_lock::{RefreshLockError, run_cross_process};
+use herdr_tab_title::refresh_lock::{REFRESH_LOCK_DELAY, RefreshLockError, run_cross_process};
 use herdr_tab_title::rename;
 
 struct AppState {

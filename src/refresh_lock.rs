@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub const REFRESH_LOCK_DELAY: Duration = Duration::from_millis(100);
+
 pub fn run_cross_process<F>(
     state_dir: Option<&Path>,
     delay: Duration,
