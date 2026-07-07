@@ -52,21 +52,11 @@ pub fn plan_renames<C: HerdrApi>(
 }
 
 pub fn refresh<C: HerdrApi>(client: &C, formatter: &Formatter) -> Result<usize, HerdrError> {
-    let focused_tab_id = client
-        .list_tabs()?
-        .iter()
-        .find(|tab| tab.focused)
-        .map(|tab| tab.id.clone());
     let operations = plan_renames(client, formatter)?;
     let count = operations.len();
 
     for operation in operations {
         client.rename_tab(&operation.tab_id, &operation.to)?;
-    }
-    if count > 0 {
-        if let Some(tab_id) = focused_tab_id {
-            client.focus_tab(&tab_id)?;
-        }
     }
     Ok(count)
 }
@@ -159,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_renames_only_changed_tabs() {
+    fn refresh_renames_only_changed_tabs_without_refocusing() {
         let client = MockHerdrClient {
             tabs: vec![
                 Tab {
@@ -186,10 +176,7 @@ mod tests {
         assert_eq!(count, 1);
         assert_eq!(
             client.renames.borrow().as_slice(),
-            &[
-                ("t1".to_string(), "1. Codex".to_string()),
-                ("t1".to_string(), "<focus>".to_string())
-            ]
+            &[("t1".to_string(), "1. Codex".to_string())]
         );
     }
 
