@@ -230,6 +230,23 @@ mod tests {
     }
 
     #[test]
+    fn unmatched_trimmed_label_is_used_as_title() {
+        let tabs = vec![tab("t1", "1.", "w1", 1)];
+        let formatter = Formatter::parse("{index}. {title}").unwrap();
+
+        let operations = plan_renames(&tabs, &formatter);
+
+        assert_eq!(
+            operations,
+            vec![RenameOperation {
+                tab_id: "t1".to_string(),
+                from: "1.".to_string(),
+                to: "1. 1.".to_string(),
+            }]
+        );
+    }
+
+    #[test]
     fn custom_index_format_does_not_nest_existing_prefix() {
         let tabs = vec![
             tab("t1", "[1] Codex", "w1", 1),

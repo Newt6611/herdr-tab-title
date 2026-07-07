@@ -38,17 +38,16 @@ impl Formatter {
     }
 
     pub fn clean_title<'a>(&self, title: &'a str) -> &'a str {
-        let Some(captures) = self.matcher.regex.captures(title) else {
-            return title;
-        };
+        self.capture_title(title).unwrap_or(title)
+    }
+
+    fn capture_title<'a>(&self, title: &'a str) -> Option<&'a str> {
+        let captures = self.matcher.regex.captures(title)?;
 
         if self.matcher.captures_title {
-            captures
-                .name("title")
-                .map(|title| title.as_str())
-                .unwrap_or(title)
+            captures.name("title").map(|title| title.as_str())
         } else {
-            ""
+            Some("")
         }
     }
 }
@@ -132,6 +131,20 @@ mod tests {
         let formatter = Formatter::parse("[{index}] {index}").unwrap();
 
         assert_eq!(formatter.clean_title("[12] 12"), "");
+    }
+
+    #[test]
+    fn clean_title_extracts_explicit_empty_trailing_title() {
+        let formatter = Formatter::parse("{index}. {title}").unwrap();
+
+        assert_eq!(formatter.clean_title("1. "), "");
+    }
+
+    #[test]
+    fn clean_title_keeps_unmatched_trimmed_label_as_title() {
+        let formatter = Formatter::parse("{index}. {title}").unwrap();
+
+        assert_eq!(formatter.clean_title("1."), "1.");
     }
 
     #[test]
