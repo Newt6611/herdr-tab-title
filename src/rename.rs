@@ -95,6 +95,14 @@ fn apply_renames<C: HerdrApi>(
 }
 
 fn created_tab_title<C: HerdrApi>(client: &C, tab_id: &str) -> Result<Option<String>, HerdrError> {
+    let tabs = client.list_tabs()?;
+    let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id) else {
+        return Ok(None);
+    };
+    if !strip_numeric_prefix(&tab.title).trim().is_empty() {
+        return Ok(None);
+    }
+
     Ok(client
         .list_panes()?
         .into_iter()
@@ -261,7 +269,7 @@ mod tests {
                 },
                 Tab {
                     id: "t3".to_string(),
-                    title: "zsh".to_string(),
+                    title: "".to_string(),
                     workspace_id: "w1".to_string(),
                     number: 3,
                     focused: true,
@@ -283,6 +291,35 @@ mod tests {
         assert_eq!(
             client.renames.borrow().as_slice(),
             &[("t3".to_string(), "3. herdr".to_string())]
+        );
+    }
+
+    #[test]
+    fn refresh_created_tab_preserves_custom_title() {
+        let client = MockHerdrClient {
+            tabs: vec![Tab {
+                id: "t1".to_string(),
+                title: "server logs".to_string(),
+                workspace_id: "w1".to_string(),
+                number: 1,
+                focused: true,
+            }],
+            panes: vec![Pane {
+                id: "p1".to_string(),
+                tab_id: "t1".to_string(),
+                cwd: Some("/Users/newt/dev/herdr".to_string()),
+                foreground_cwd: None,
+            }],
+            renames: RefCell::new(Vec::new()),
+        };
+        let formatter = Formatter::parse("{index}. {title}").unwrap();
+
+        let count = refresh_created_tab(&client, &formatter, "t1").unwrap();
+
+        assert_eq!(count, 1);
+        assert_eq!(
+            client.renames.borrow().as_slice(),
+            &[("t1".to_string(), "1. server logs".to_string())]
         );
     }
 
