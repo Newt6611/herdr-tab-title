@@ -17,6 +17,7 @@ pub struct Formatter {
 struct FormatMatcher {
     regex: Regex,
     captures_title: bool,
+    trailing_empty_title_padding: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +39,18 @@ impl Formatter {
     }
 
     pub fn clean_title<'a>(&self, title: &'a str) -> &'a str {
-        self.capture_title(title).unwrap_or(title)
+        if let Some(clean_title) = self.capture_title(title) {
+            return clean_title;
+        }
+
+        if let Some(padding) = &self.matcher.trailing_empty_title_padding {
+            let padded_title = format!("{title}{padding}");
+            if self.capture_title(&padded_title) == Some("") {
+                return "";
+            }
+        }
+
+        title
     }
 
     fn capture_title<'a>(&self, title: &'a str) -> Option<&'a str> {
@@ -77,7 +89,29 @@ fn build_matcher(tokens: &[Token]) -> FormatMatcher {
     FormatMatcher {
         regex: Regex::new(&pattern).expect("generated formatter regex should be valid"),
         captures_title,
+        trailing_empty_title_padding: trailing_empty_title_padding(tokens, captures_title),
     }
+}
+
+fn trailing_empty_title_padding(tokens: &[Token], captures_title: bool) -> Option<String> {
+    if !captures_title || !matches!(tokens.last(), Some(Token::Placeholder(Placeholder::Title))) {
+        return None;
+    }
+
+    let Some(Token::Literal(literal)) = tokens.iter().rev().nth(1) else {
+        return None;
+    };
+
+    let padding = literal
+        .chars()
+        .rev()
+        .take_while(|character| character.is_whitespace())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+
+    (!padding.is_empty()).then_some(padding)
 }
 
 #[cfg(test)]
@@ -141,10 +175,10 @@ mod tests {
     }
 
     #[test]
-    fn clean_title_keeps_unmatched_trimmed_label_as_title() {
+    fn clean_title_accepts_trimmed_empty_trailing_title() {
         let formatter = Formatter::parse("{index}. {title}").unwrap();
 
-        assert_eq!(formatter.clean_title("1."), "1.");
+        assert_eq!(formatter.clean_title("1."), "");
     }
 
     #[test]

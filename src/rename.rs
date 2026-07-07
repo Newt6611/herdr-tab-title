@@ -48,7 +48,7 @@ fn plan_renames_with_title_overrides(
             title: clean_title,
         });
 
-        if tab.label != expected {
+        if !label_matches_expected(&tab.label, &expected, clean_title) {
             operations.push(RenameOperation {
                 tab_id: tab.tab_id.clone(),
                 from: tab.label.clone(),
@@ -58,6 +58,10 @@ fn plan_renames_with_title_overrides(
     }
 
     operations
+}
+
+fn label_matches_expected(label: &str, expected: &str, clean_title: &str) -> bool {
+    label == expected || (clean_title.is_empty() && label == expected.trim_end())
 }
 
 pub async fn refresh_sdk(
@@ -230,20 +234,13 @@ mod tests {
     }
 
     #[test]
-    fn unmatched_trimmed_label_is_used_as_title() {
+    fn trimmed_empty_title_format_is_already_settled() {
         let tabs = vec![tab("t1", "1.", "w1", 1)];
         let formatter = Formatter::parse("{index}. {title}").unwrap();
 
         let operations = plan_renames(&tabs, &formatter);
 
-        assert_eq!(
-            operations,
-            vec![RenameOperation {
-                tab_id: "t1".to_string(),
-                from: "1.".to_string(),
-                to: "1. 1.".to_string(),
-            }]
-        );
+        assert_eq!(operations, Vec::<RenameOperation>::new());
     }
 
     #[test]
