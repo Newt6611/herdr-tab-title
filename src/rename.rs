@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::formatter::{Formatter, RenderContext, strip_numeric_prefix};
+use crate::formatter::{Formatter, RenderContext};
 use herdr_plugin::{Pane, Tab};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +42,7 @@ fn plan_renames_with_title_overrides(
         let clean_title = title_overrides
             .get(&tab.tab_id)
             .map(String::as_str)
-            .unwrap_or_else(|| strip_numeric_prefix(&tab.label));
+            .unwrap_or_else(|| formatter.clean_title(&tab.label));
         let expected = formatter.render(&RenderContext {
             index: workspace_index,
             title: clean_title,
@@ -76,7 +76,7 @@ pub async fn refresh_created_tab_sdk(
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
     let tabs = list_tabs(client).await?;
     let panes = list_panes(client).await?;
-    let title_overrides = created_tab_title(&tabs, &panes, tab_id)
+    let title_overrides = created_tab_title(&tabs, &panes, formatter, tab_id)
         .map(|title| HashMap::from([(tab_id.to_string(), title)]))
         .unwrap_or_default();
     let operations = plan_renames_with_title_overrides(&tabs, formatter, &title_overrides);
@@ -119,11 +119,14 @@ async fn list_panes(
         .panes)
 }
 
-fn created_tab_title(tabs: &[Tab], panes: &[Pane], tab_id: &str) -> Option<String> {
-    let Some(tab) = tabs.iter().find(|tab| tab.tab_id == tab_id) else {
-        return None;
-    };
-    if !strip_numeric_prefix(&tab.label).trim().is_empty() {
+fn created_tab_title(
+    tabs: &[Tab],
+    panes: &[Pane],
+    formatter: &Formatter,
+    tab_id: &str,
+) -> Option<String> {
+    let tab = tabs.iter().find(|tab| tab.tab_id == tab_id)?;
+    if !formatter.clean_title(&tab.label).trim().is_empty() {
         return None;
     }
 
@@ -227,6 +230,70 @@ mod tests {
     }
 
     #[test]
+    fn custom_index_format_does_not_nest_existing_prefix() {
+        let tabs = vec![
+            tab("t1", "[1] Codex", "w1", 1),
+            tab("t2", "[2] Claude", "w1", 2),
+        ];
+        let formatter = Formatter::parse("[{index}] {title}").unwrap();
+
+        let operations = plan_renames(&tabs, &formatter);
+
+        assert_eq!(operations, Vec::<RenameOperation>::new());
+    }
+
+    #[test]
+    fn repeated_index_format_extracts_title_when_tab_moves() {
+        let tabs = vec![
+            tab("t1", "[2] 2 Claude", "w1", 1),
+            tab("t2", "[1] 1 Codex", "w1", 2),
+        ];
+        let formatter = Formatter::parse("[{index}] {index} {title}").unwrap();
+
+        let operations = plan_renames(&tabs, &formatter);
+
+        assert_eq!(
+            operations,
+            vec![
+                RenameOperation {
+                    tab_id: "t1".to_string(),
+                    from: "[2] 2 Claude".to_string(),
+                    to: "[1] 1 Claude".to_string(),
+                },
+                RenameOperation {
+                    tab_id: "t2".to_string(),
+                    from: "[1] 1 Codex".to_string(),
+                    to: "[2] 2 Codex".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn titleless_repeated_index_format_settles_after_move() {
+        let tabs = vec![tab("t1", "[2] 2", "w1", 1), tab("t2", "[1] 1", "w1", 2)];
+        let formatter = Formatter::parse("[{index}] {index}").unwrap();
+
+        let operations = plan_renames(&tabs, &formatter);
+
+        assert_eq!(
+            operations,
+            vec![
+                RenameOperation {
+                    tab_id: "t1".to_string(),
+                    from: "[2] 2".to_string(),
+                    to: "[1] 1".to_string(),
+                },
+                RenameOperation {
+                    tab_id: "t2".to_string(),
+                    from: "[1] 1".to_string(),
+                    to: "[2] 2".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn refresh_created_tab_uses_pane_cwd_basename_as_title() {
         let tabs = vec![
             tab("t1", "1. Codex", "w1", 1),
@@ -236,7 +303,7 @@ mod tests {
         let panes = vec![pane("t3", "/Users/newt/dev/herdr", "")];
         let formatter = Formatter::parse("{index}. {title}").unwrap();
 
-        let title_overrides = created_tab_title(&tabs, &panes, "t3")
+        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t3")
             .map(|title| HashMap::from([("t3".to_string(), title)]))
             .unwrap_or_default();
         let operations = plan_renames_with_title_overrides(&tabs, &formatter, &title_overrides);
@@ -252,12 +319,36 @@ mod tests {
     }
 
     #[test]
+    fn refresh_created_tab_detects_empty_title_from_current_format() {
+        let tabs = vec![
+            tab("t1", "tab 1: Codex!", "w1", 1),
+            tab("t2", "tab 2: !", "w1", 2),
+        ];
+        let panes = vec![pane("t2", "/Users/newt/dev/herdr-tab-title", "")];
+        let formatter = Formatter::parse("tab {index}: {title}!").unwrap();
+
+        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t2")
+            .map(|title| HashMap::from([("t2".to_string(), title)]))
+            .unwrap_or_default();
+        let operations = plan_renames_with_title_overrides(&tabs, &formatter, &title_overrides);
+
+        assert_eq!(
+            operations,
+            vec![RenameOperation {
+                tab_id: "t2".to_string(),
+                from: "tab 2: !".to_string(),
+                to: "tab 2: herdr-tab-title!".to_string(),
+            }]
+        );
+    }
+
+    #[test]
     fn refresh_created_tab_preserves_custom_title() {
         let tabs = vec![tab("t1", "server logs", "w1", 1)];
         let panes = vec![pane("t1", "/Users/newt/dev/herdr", "")];
         let formatter = Formatter::parse("{index}. {title}").unwrap();
 
-        let title_overrides = created_tab_title(&tabs, &panes, "t1")
+        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t1")
             .map(|title| HashMap::from([("t1".to_string(), title)]))
             .unwrap_or_default();
         let operations = plan_renames_with_title_overrides(&tabs, &formatter, &title_overrides);

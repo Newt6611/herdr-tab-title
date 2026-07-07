@@ -2,12 +2,21 @@ pub mod parser;
 pub mod token;
 
 use parser::Template;
+use regex::Regex;
+use token::{Placeholder, Token};
 
 pub use parser::ParseError;
 
 #[derive(Debug, Clone)]
 pub struct Formatter {
     template: Template,
+    matcher: FormatMatcher,
+}
+
+#[derive(Debug, Clone)]
+struct FormatMatcher {
+    regex: Regex,
+    captures_title: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,32 +27,57 @@ pub struct RenderContext<'a> {
 
 impl Formatter {
     pub fn parse(format: &str) -> Result<Self, ParseError> {
-        Ok(Self {
-            template: Template::parse(format)?,
-        })
+        let template = Template::parse(format)?;
+        let matcher = build_matcher(template.tokens());
+
+        Ok(Self { template, matcher })
     }
 
     pub fn render(&self, context: &RenderContext<'_>) -> String {
         self.template.render(context)
     }
+
+    pub fn clean_title<'a>(&self, title: &'a str) -> &'a str {
+        let Some(captures) = self.matcher.regex.captures(title) else {
+            return title;
+        };
+
+        if self.matcher.captures_title {
+            captures
+                .name("title")
+                .map(|title| title.as_str())
+                .unwrap_or(title)
+        } else {
+            ""
+        }
+    }
 }
 
-pub fn strip_numeric_prefix(title: &str) -> &str {
-    let Some(dot_index) = title.find(". ") else {
-        return title;
-    };
+fn build_matcher(tokens: &[Token]) -> FormatMatcher {
+    let title_count = tokens
+        .iter()
+        .filter(|token| matches!(token, Token::Placeholder(Placeholder::Title)))
+        .count();
+    let captures_title = title_count == 1;
 
-    if dot_index == 0 {
-        return title;
+    let mut pattern = String::from("^");
+
+    for token in tokens {
+        match token {
+            Token::Literal(value) => pattern.push_str(&regex::escape(value)),
+            Token::Placeholder(Placeholder::Index) => pattern.push_str(r"\d+"),
+            Token::Placeholder(Placeholder::Title) if captures_title => {
+                pattern.push_str(r"(?P<title>.*?)");
+            }
+            Token::Placeholder(Placeholder::Title) => pattern.push_str(r".*?"),
+        }
     }
 
-    if title[..dot_index]
-        .chars()
-        .all(|character| character.is_ascii_digit())
-    {
-        &title[dot_index + 2..]
-    } else {
-        title
+    pattern.push('$');
+
+    FormatMatcher {
+        regex: Regex::new(&pattern).expect("generated formatter regex should be valid"),
+        captures_title,
     }
 }
 
@@ -51,18 +85,6 @@ pub fn strip_numeric_prefix(title: &str) -> &str {
 mod tests {
     use super::*;
     use crate::formatter::token::{Placeholder, Token};
-
-    #[test]
-    fn strips_only_leading_numeric_prefixes() {
-        assert_eq!(strip_numeric_prefix("1. Claude"), "Claude");
-        assert_eq!(strip_numeric_prefix("12. Backend"), "Backend");
-        assert_eq!(strip_numeric_prefix("Claude 3.5"), "Claude 3.5");
-        assert_eq!(
-            strip_numeric_prefix("Claude 3. Backend"),
-            "Claude 3. Backend"
-        );
-        assert_eq!(strip_numeric_prefix(". Claude"), ". Claude");
-    }
 
     #[test]
     fn renders_index_and_title_placeholders() {
@@ -75,6 +97,41 @@ mod tests {
             }),
             "3. Claude"
         );
+    }
+
+    #[test]
+    fn cleans_title_wrapped_by_current_format() {
+        let formatter = Formatter::parse("[{index}] {title}").unwrap();
+
+        assert_eq!(formatter.clean_title("[2] Claude"), "Claude");
+    }
+
+    #[test]
+    fn cleans_title_wrapped_by_format_with_suffix() {
+        let formatter = Formatter::parse("tab {index}: {title}!").unwrap();
+
+        assert_eq!(formatter.clean_title("tab 12: Claude!"), "Claude");
+    }
+
+    #[test]
+    fn cleans_title_when_index_is_after_title() {
+        let formatter = Formatter::parse("{title} [{index}]").unwrap();
+
+        assert_eq!(formatter.clean_title("Claude [12]"), "Claude");
+    }
+
+    #[test]
+    fn cleans_title_with_regex_metacharacter_literals() {
+        let formatter = Formatter::parse("[{index}] ({title}) + ${index}?").unwrap();
+
+        assert_eq!(formatter.clean_title("[12] (Claude) + $12?"), "Claude");
+    }
+
+    #[test]
+    fn titleless_format_does_not_extract_title() {
+        let formatter = Formatter::parse("[{index}] {index}").unwrap();
+
+        assert_eq!(formatter.clean_title("[12] 12"), "");
     }
 
     #[test]
