@@ -135,6 +135,40 @@ mod tests {
     }
 
     #[test]
+    fn matcher_treats_index_as_digits() {
+        let template = Template::parse("[{index}] {title}").unwrap();
+        let matcher = build_matcher(template.tokens());
+        let captures = matcher.regex.captures("[987] Claude").unwrap();
+
+        assert!(matcher.captures_title);
+        assert_eq!(captures.name("title").unwrap().as_str(), "Claude");
+    }
+
+    #[test]
+    fn matcher_anchors_and_escapes_literals() {
+        let template = Template::parse("({index}) {title}?").unwrap();
+        let matcher = build_matcher(template.tokens());
+
+        assert!(matcher.regex.is_match("(3) Claude?"));
+        assert!(!matcher.regex.is_match("x(3) Claude?"));
+        assert!(!matcher.regex.is_match("(3) Claude?!"));
+        assert!(!matcher.regex.is_match("3 Claude?"));
+    }
+
+    #[test]
+    fn matcher_without_exactly_one_title_does_not_capture_title() {
+        let titleless = Template::parse("[{index}] {index}").unwrap();
+        let titleless_matcher = build_matcher(titleless.tokens());
+        assert!(!titleless_matcher.captures_title);
+        assert!(titleless_matcher.regex.is_match("[12] 12"));
+
+        let duplicate_title = Template::parse("{title} / {title}").unwrap();
+        let duplicate_matcher = build_matcher(duplicate_title.tokens());
+        assert!(!duplicate_matcher.captures_title);
+        assert!(duplicate_matcher.regex.is_match("left / right"));
+    }
+
+    #[test]
     fn parses_template_into_tokens() {
         let template = Template::parse("{index}. {title}").unwrap();
 
