@@ -7,10 +7,6 @@ use herdr_tab_title::formatter::Formatter;
 use herdr_tab_title::refresh_lock::{REFRESH_LOCK_DELAY, RefreshLockError, run_cross_process};
 use herdr_tab_title::rename;
 
-struct AppState {
-    formatter: Formatter,
-}
-
 #[tokio::main]
 async fn main() {
     if let Err(error) = run().await {
@@ -19,12 +15,11 @@ async fn main() {
 }
 
 async fn run() -> Result<(), String> {
-    let config = Config::load().map_err(|error| error.to_string())?;
-    let formatter = Formatter::parse(&config.format).map_err(|error| error.to_string())?;
-
-    App::new()
-        .with_state(AppState { formatter })
-        .setup(|ctx: Context<AppState>| async move {
+    App::builder()
+        .with_config::<Config>()
+        .build()
+        .map_err(|error| error.to_string())?
+        .setup(|ctx: Context<(), Config>| async move {
             if ctx.env().plugin_event_json.is_none() {
                 refresh_with_lock(ctx, None).await.map_err(|error| {
                     let error = std::io::Error::new(std::io::ErrorKind::Other, error);
@@ -34,7 +29,7 @@ async fn run() -> Result<(), String> {
 
             Ok(())
         })
-        .on_event::<TabCreated>(|ctx: Context<AppState>, event: TabCreated| async move {
+        .on_event::<TabCreated>(|ctx: Context<(), Config>, event: TabCreated| async move {
             if let Err(error) = refresh_with_lock(ctx, Some(event.tab.tab_id)).await {
                 eprintln!("herdr-tab-title: {error}");
             }
@@ -51,7 +46,7 @@ async fn run() -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-async fn refresh_all<E>(ctx: Context<AppState>, _event: E)
+async fn refresh_all<E>(ctx: Context<(), Config>, _event: E)
 where
     E: Send + 'static,
 {
@@ -61,12 +56,12 @@ where
 }
 
 async fn refresh_with_lock(
-    ctx: Context<AppState>,
+    ctx: Context<(), Config>,
     created_tab_id: Option<String>,
 ) -> Result<(), String> {
     let state_dir = ctx.env().plugin_state_dir.clone();
     let client = ctx.client().clone();
-    let formatter = ctx.state().formatter.clone();
+    let formatter = Formatter::parse(&ctx.config().format).map_err(|error| error.to_string())?;
 
     tokio::task::spawn_blocking(move || {
         run_cross_process(state_dir.as_deref(), REFRESH_LOCK_DELAY, || {
