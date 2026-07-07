@@ -8,6 +8,8 @@ pub struct Tab {
     pub title: String,
     pub workspace_id: String,
     pub number: usize,
+    #[serde(default)]
+    pub focused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

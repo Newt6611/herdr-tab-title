@@ -52,11 +52,21 @@ pub fn plan_renames<C: HerdrApi>(
 }
 
 pub fn refresh<C: HerdrApi>(client: &C, formatter: &Formatter) -> Result<usize, HerdrError> {
+    let focused_tab_id = client
+        .list_tabs()?
+        .iter()
+        .find(|tab| tab.focused)
+        .map(|tab| tab.id.clone());
     let operations = plan_renames(client, formatter)?;
     let count = operations.len();
 
     for operation in operations {
         client.rename_tab(&operation.tab_id, &operation.to)?;
+    }
+    if count > 0 {
+        if let Some(tab_id) = focused_tab_id {
+            client.focus_tab(&tab_id)?;
+        }
     }
     Ok(count)
 }
@@ -108,18 +118,21 @@ mod tests {
                     title: "1. Codex".to_string(),
                     workspace_id: "w1".to_string(),
                     number: 1,
+                    focused: false,
                 },
                 Tab {
                     id: "t2".to_string(),
                     title: "Terminal".to_string(),
                     workspace_id: "w1".to_string(),
                     number: 2,
+                    focused: false,
                 },
                 Tab {
                     id: "t3".to_string(),
                     title: "9. Claude 3.5".to_string(),
                     workspace_id: "w1".to_string(),
                     number: 3,
+                    focused: false,
                 },
             ],
             renames: RefCell::new(Vec::new()),
@@ -154,12 +167,14 @@ mod tests {
                     title: "Codex".to_string(),
                     workspace_id: "w1".to_string(),
                     number: 1,
+                    focused: true,
                 },
                 Tab {
                     id: "t2".to_string(),
                     title: "2. Claude".to_string(),
                     workspace_id: "w1".to_string(),
                     number: 2,
+                    focused: false,
                 },
             ],
             renames: RefCell::new(Vec::new()),
@@ -187,24 +202,28 @@ mod tests {
                     title: "two".to_string(),
                     workspace_id: "w2".to_string(),
                     number: 2,
+                    focused: false,
                 },
                 Tab {
                     id: "w1t2".to_string(),
                     title: "two".to_string(),
                     workspace_id: "w1".to_string(),
                     number: 2,
+                    focused: false,
                 },
                 Tab {
                     id: "w2t1".to_string(),
                     title: "one".to_string(),
                     workspace_id: "w2".to_string(),
                     number: 1,
+                    focused: false,
                 },
                 Tab {
                     id: "w1t1".to_string(),
                     title: "one".to_string(),
                     workspace_id: "w1".to_string(),
                     number: 1,
+                    focused: false,
                 },
             ],
             renames: RefCell::new(Vec::new()),

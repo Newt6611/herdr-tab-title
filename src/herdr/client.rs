@@ -161,6 +161,7 @@ mod tests {
                 title: "codex".to_string(),
                 workspace_id: "w1".to_string(),
                 number: 2,
+                focused: true,
             }]
         );
     }
