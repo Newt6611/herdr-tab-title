@@ -43,6 +43,9 @@ impl Formatter {
             return clean_title;
         }
 
+        // Herdr may trim trailing whitespace from labels. If the format ends
+        // with `{title}`, treat a label missing only the separator's trailing
+        // whitespace as the formatted empty-title case.
         if let Some(padding) = &self.matcher.trailing_empty_title_padding {
             let padded_title = format!("{title}{padding}");
             if self.capture_title(&padded_title) == Some("") {
@@ -93,6 +96,8 @@ fn build_matcher(tokens: &[Token]) -> FormatMatcher {
     }
 }
 
+// Stores the whitespace that can be trimmed when a format like
+// `{index}. {title}` renders an empty trailing title as `1. `.
 fn trailing_empty_title_padding(tokens: &[Token], captures_title: bool) -> Option<String> {
     if !captures_title || !matches!(tokens.last(), Some(Token::Placeholder(Placeholder::Title))) {
         return None;

@@ -61,6 +61,7 @@ fn plan_renames_with_title_overrides(
 }
 
 fn label_matches_expected(label: &str, expected: &str, clean_title: &str) -> bool {
+    // If Herdr trims `1. ` to `1.`, avoid renaming it back on every refresh.
     label == expected || (clean_title.is_empty() && label == expected.trim_end())
 }
 
