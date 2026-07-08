@@ -41,9 +41,9 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "herdr-plugin"
-version = "0.1.4"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc8f9417176fdc065b913d2eef34445906db6e7b518256ef03cce9a46908a5a6"
+checksum = "e77c31d977f147306ed3ff88400f7ddf0dcae7c964eecc5be2347c7235e95b3a"
 dependencies = [
  "serde",
  "serde_json",
