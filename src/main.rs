@@ -31,14 +31,28 @@ async fn run() -> Result<(), String> {
             Ok(())
         })
         .on_event::<TabCreated>(|ctx: Context<(), Config>, event: TabCreated| async move {
-            if let Err(error) = refresh_with_lock(ctx, Some(event.tab.tab_id)).await {
+            if let Err(error) = refresh_with_lock(
+                ctx,
+                Some(CreatedTab {
+                    tab_id: event.tab.tab_id,
+                    label: Some(event.tab.label),
+                }),
+            )
+            .await
+            {
                 eprintln!("herdr-tab-title: {error}");
             }
         })
         .on_event::<TabRenamed>(refresh_all)
         .on_event::<TabClosed>(refresh_all)
         .on_event::<TabFocused>(refresh_all)
-        .on_event::<WorkspaceCreated>(refresh_all)
+        .on_event::<WorkspaceCreated>(
+            |ctx: Context<(), Config>, event: WorkspaceCreated| async move {
+                if let Err(error) = refresh_with_lock(ctx, workspace_created_tab(event)).await {
+                    eprintln!("herdr-tab-title: {error}");
+                }
+            },
+        )
         .on_event::<WorkspaceFocused>(refresh_all)
         .on_event::<WorkspaceRenamed>(refresh_all)
         .on_event::<WorkspaceClosed>(refresh_all)
@@ -58,7 +72,7 @@ where
 
 async fn refresh_with_lock(
     ctx: Context<(), Config>,
-    created_tab_id: Option<String>,
+    created_tab: Option<CreatedTab>,
 ) -> Result<(), String> {
     let state_dir = ctx.env().plugin_state_dir.clone();
     let client = ctx.client().clone();
@@ -73,10 +87,16 @@ async fn refresh_with_lock(
 
             runtime
                 .block_on(async {
-                    if let Some(tab_id) = created_tab_id.as_deref() {
-                        rename::refresh_created_tab_sdk(&client, &formatter, tab_id).await?;
+                    if let Some(tab) = created_tab.as_ref() {
+                        rename::refresh_created_tab(
+                            &client,
+                            &formatter,
+                            &tab.tab_id,
+                            tab.label.as_deref(),
+                        )
+                        .await?;
                     } else {
-                        rename::refresh_sdk(&client, &formatter).await?;
+                        rename::refresh(&client, &formatter).await?;
                     }
 
                     Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
@@ -88,4 +108,49 @@ async fn refresh_with_lock(
     .map_err(|error| error.to_string())?
     .map(|_| ())
     .map_err(|error| error.to_string())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CreatedTab {
+    tab_id: String,
+    label: Option<String>,
+}
+
+fn workspace_created_tab(event: WorkspaceCreated) -> Option<CreatedTab> {
+    Some(CreatedTab {
+        tab_id: event.workspace.active_tab_id,
+        label: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use herdr_plugin::{AgentStatus, WorkspaceCreated, WorkspaceInfo};
+
+    use super::*;
+
+    #[test]
+    fn workspace_created_refreshes_active_tab_as_created_tab() {
+        let event = WorkspaceCreated {
+            workspace: WorkspaceInfo {
+                workspace_id: "w1".to_string(),
+                number: 1,
+                label: "workspace".to_string(),
+                focused: true,
+                pane_count: 1,
+                tab_count: 1,
+                active_tab_id: "t1".to_string(),
+                agent_status: AgentStatus::Unknown,
+                worktree: None,
+            },
+        };
+
+        assert_eq!(
+            workspace_created_tab(event),
+            Some(CreatedTab {
+                tab_id: "t1".to_string(),
+                label: None,
+            })
+        );
+    }
 }
