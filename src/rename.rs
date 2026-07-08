@@ -65,45 +65,30 @@ fn label_matches_expected(label: &str, expected: &str, clean_title: &str) -> boo
     label == expected || (clean_title.is_empty() && label == expected.trim_end())
 }
 
-pub async fn refresh(
+pub async fn refresh_sdk(
     client: &herdr_plugin::HerdrClient,
     formatter: &Formatter,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
     let tabs = list_tabs(client).await?;
     let operations = plan_renames(&tabs, formatter);
-    apply_renames(client, operations).await
+    apply_sdk_renames(client, operations).await
 }
 
-pub async fn refresh_created_tab(
+pub async fn refresh_created_tab_sdk(
     client: &herdr_plugin::HerdrClient,
     formatter: &Formatter,
     tab_id: &str,
-    event_label: Option<&str>,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
     let tabs = list_tabs(client).await?;
     let panes = list_panes(client).await?;
-    let title_overrides = created_tab_title(&tabs, &panes, formatter, tab_id, event_label)
+    let title_overrides = created_tab_title(&tabs, &panes, formatter, tab_id)
         .map(|title| HashMap::from([(tab_id.to_string(), title)]))
         .unwrap_or_default();
     let operations = plan_renames_with_title_overrides(&tabs, formatter, &title_overrides);
-    apply_renames(client, operations).await
+    apply_sdk_renames(client, operations).await
 }
 
-pub async fn refresh_labeled_tab(
-    client: &herdr_plugin::HerdrClient,
-    formatter: &Formatter,
-    tab_id: &str,
-    label: &str,
-) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-    let tabs = list_tabs(client).await?;
-    let title_overrides = labeled_tab_title(formatter, label)
-        .map(|title| HashMap::from([(tab_id.to_string(), title)]))
-        .unwrap_or_default();
-    let operations = plan_renames_with_title_overrides(&tabs, formatter, &title_overrides);
-    apply_renames(client, operations).await
-}
-
-async fn apply_renames(
+async fn apply_sdk_renames(
     client: &herdr_plugin::HerdrClient,
     operations: Vec<RenameOperation>,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
@@ -144,18 +129,10 @@ fn created_tab_title(
     panes: &[Pane],
     formatter: &Formatter,
     tab_id: &str,
-    event_label: Option<&str>,
 ) -> Option<String> {
     let tab = tabs.iter().find(|tab| tab.tab_id == tab_id)?;
-    if !created_tab_label_is_empty(tab, formatter) {
+    if !formatter.clean_title(&tab.label).trim().is_empty() {
         return None;
-    }
-
-    if let Some(label) = event_label
-        .map(|label| formatter.clean_title(label).trim())
-        .filter(|label| !label.is_empty())
-    {
-        return Some(label.to_string());
     }
 
     panes
@@ -168,16 +145,6 @@ fn created_tab_title(
                 .or_else(|| pane.cwd.to_str().and_then(path_basename))
                 .map(str::to_string)
         })
-}
-
-fn labeled_tab_title(formatter: &Formatter, label: &str) -> Option<String> {
-    let clean_label = formatter.clean_title(label).trim();
-    (!clean_label.is_empty()).then(|| clean_label.to_string())
-}
-
-fn created_tab_label_is_empty(tab: &Tab, formatter: &Formatter) -> bool {
-    let clean_label = formatter.clean_title(&tab.label).trim();
-    clean_label.is_empty() || clean_label == tab.number.to_string()
 }
 
 fn path_basename(path: &str) -> Option<&str> {
@@ -351,7 +318,7 @@ mod tests {
         let panes = vec![pane("t3", "/Users/newt/dev/herdr", "")];
         let formatter = Formatter::parse("{index}. {title}").unwrap();
 
-        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t3", None)
+        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t3")
             .map(|title| HashMap::from([("t3".to_string(), title)]))
             .unwrap_or_default();
         let operations = plan_renames_with_title_overrides(&tabs, &formatter, &title_overrides);
@@ -375,7 +342,7 @@ mod tests {
         let panes = vec![pane("t2", "/Users/newt/dev/herdr-tab-title", "")];
         let formatter = Formatter::parse("tab {index}: {title}!").unwrap();
 
-        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t2", None)
+        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t2")
             .map(|title| HashMap::from([("t2".to_string(), title)]))
             .unwrap_or_default();
         let operations = plan_renames_with_title_overrides(&tabs, &formatter, &title_overrides);
@@ -391,12 +358,12 @@ mod tests {
     }
 
     #[test]
-    fn refresh_created_tab_formats_existing_label_without_cwd_override() {
+    fn refresh_created_tab_preserves_custom_title() {
         let tabs = vec![tab("t1", "server logs", "w1", 1)];
         let panes = vec![pane("t1", "/Users/newt/dev/herdr", "")];
         let formatter = Formatter::parse("{index}. {title}").unwrap();
 
-        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t1", None)
+        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t1")
             .map(|title| HashMap::from([("t1".to_string(), title)]))
             .unwrap_or_default();
         let operations = plan_renames_with_title_overrides(&tabs, &formatter, &title_overrides);
@@ -407,73 +374,6 @@ mod tests {
                 tab_id: "t1".to_string(),
                 from: "server logs".to_string(),
                 to: "1. server logs".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn refresh_created_tab_uses_event_label_before_cwd_when_listed_label_is_empty() {
-        let tabs = vec![tab("t1", "", "w1", 1)];
-        let panes = vec![pane("t1", "/Users/newt/dev/herdr", "")];
-        let formatter = Formatter::parse("{index}. {title}").unwrap();
-
-        let title_overrides =
-            created_tab_title(&tabs, &panes, &formatter, "t1", Some("server logs"))
-                .map(|title| HashMap::from([("t1".to_string(), title)]))
-                .unwrap_or_default();
-        let operations = plan_renames_with_title_overrides(&tabs, &formatter, &title_overrides);
-
-        assert_eq!(
-            operations,
-            vec![RenameOperation {
-                tab_id: "t1".to_string(),
-                from: "".to_string(),
-                to: "1. server logs".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn refresh_created_tab_treats_default_number_label_as_empty() {
-        let tabs = vec![tab("t1", "1", "w1", 1)];
-        let panes = vec![pane("t1", "/Users/newt/dev/herdr", "")];
-        let formatter = Formatter::parse("{index}. {title}").unwrap();
-
-        let title_overrides = created_tab_title(&tabs, &panes, &formatter, "t1", None)
-            .map(|title| HashMap::from([("t1".to_string(), title)]))
-            .unwrap_or_default();
-        let operations = plan_renames_with_title_overrides(&tabs, &formatter, &title_overrides);
-
-        assert_eq!(
-            operations,
-            vec![RenameOperation {
-                tab_id: "t1".to_string(),
-                from: "1".to_string(),
-                to: "1. herdr".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn labeled_tab_title_overrides_stale_listed_label() {
-        let tabs = vec![
-            tab("t1", "1. Codex", "w1", 1),
-            tab("t2", "2. Claude", "w1", 2),
-            tab("t3", "3. herdr", "w1", 3),
-        ];
-        let formatter = Formatter::parse("{index}. {title}").unwrap();
-        let title_overrides = labeled_tab_title(&formatter, "custom name")
-            .map(|title| HashMap::from([("t3".to_string(), title)]))
-            .unwrap_or_default();
-
-        let operations = plan_renames_with_title_overrides(&tabs, &formatter, &title_overrides);
-
-        assert_eq!(
-            operations,
-            vec![RenameOperation {
-                tab_id: "t3".to_string(),
-                from: "3. herdr".to_string(),
-                to: "3. custom name".to_string(),
             }]
         );
     }
