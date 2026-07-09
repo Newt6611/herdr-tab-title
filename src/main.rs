@@ -74,9 +74,9 @@ async fn refresh_with_lock(
             runtime
                 .block_on(async {
                     if let Some(tab_id) = created_tab_id.as_deref() {
-                        rename::refresh_created_tab_sdk(&client, &formatter, tab_id).await?;
+                        rename::refresh_created_tab(&client, &formatter, tab_id).await?;
                     } else {
-                        rename::refresh_sdk(&client, &formatter).await?;
+                        rename::refresh(&client, &formatter).await?;
                     }
 
                     Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())

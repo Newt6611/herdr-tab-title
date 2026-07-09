@@ -65,16 +65,16 @@ fn label_matches_expected(label: &str, expected: &str, clean_title: &str) -> boo
     label == expected || (clean_title.is_empty() && label == expected.trim_end())
 }
 
-pub async fn refresh_sdk(
+pub async fn refresh(
     client: &herdr_plugin::HerdrClient,
     formatter: &Formatter,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
     let tabs = list_tabs(client).await?;
     let operations = plan_renames(&tabs, formatter);
-    apply_sdk_renames(client, operations).await
+    apply_renames(client, operations).await
 }
 
-pub async fn refresh_created_tab_sdk(
+pub async fn refresh_created_tab(
     client: &herdr_plugin::HerdrClient,
     formatter: &Formatter,
     tab_id: &str,
@@ -85,10 +85,10 @@ pub async fn refresh_created_tab_sdk(
         .map(|title| HashMap::from([(tab_id.to_string(), title)]))
         .unwrap_or_default();
     let operations = plan_renames_with_title_overrides(&tabs, formatter, &title_overrides);
-    apply_sdk_renames(client, operations).await
+    apply_renames(client, operations).await
 }
 
-async fn apply_sdk_renames(
+async fn apply_renames(
     client: &herdr_plugin::HerdrClient,
     operations: Vec<RenameOperation>,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
